@@ -20,6 +20,7 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 USE_POSTGRES = bool(DATABASE_URL)
 RECOMMENDER_PATH = BASE_DIR / "netflix_recommendation_model.joblib"
 NLP_MODEL_PATH = BASE_DIR / "netflix_review_nlp_model.joblib"
+MOVIE_METADATA_PATH = BASE_DIR / "Movies 67.csv"
 
 app = Flask(
     __name__,
@@ -150,6 +151,48 @@ def load_recommender_model():
 
 
 recommender_model = load_recommender_model()
+
+
+def load_movie_metadata():
+    if not MOVIE_METADATA_PATH.exists():
+        return pd.DataFrame(columns=["movie_id", "title", "genres"])
+
+    metadata_df = pd.read_csv(MOVIE_METADATA_PATH)
+    metadata_df = metadata_df[["movie_id", "title", "genres"]].copy()
+    metadata_df["movie_id"] = metadata_df["movie_id"].astype(int)
+    metadata_df["genres"] = metadata_df["genres"].fillna("").astype(str)
+
+    return metadata_df
+
+
+movie_metadata = load_movie_metadata()
+
+GENRE_VIBE_KEYWORDS = {
+    "action": ["action", "fight", "fighting", "explosive", "battle", "chase", "fast paced", "fast-paced", "adrenaline", "exciting"],
+    "adventure": ["adventure", "journey", "quest", "explore", "exploration", "epic", "treasure"],
+    "animation": ["animation", "animated", "cartoon", "anime"],
+    "children": ["children", "child", "kids", "kid friendly", "for kids"],
+    "comedy": ["comedy", "funny", "laugh", "hilarious", "light", "lighthearted", "feel good", "feel-good", "comfort", "silly"],
+    "crime": ["crime", "criminal", "mafia", "gangster", "detective", "mystery", "noir", "investigation"],
+    "documentary": ["documentary", "real", "true story", "educational", "informative", "factual"],
+    "drama": ["drama", "serious", "emotional", "deep", "sad", "touching", "character driven", "character-driven"],
+    "family": ["family", "kids", "children", "wholesome"],
+    "fantasy": ["fantasy", "magic", "magical", "myth", "mythical", "fairy tale", "fairytale"],
+    "health & fitness": ["fitness", "workout", "exercise", "yoga", "pilates"],
+    "history": ["history", "historical", "period", "ancient"],
+    "horror": ["horror", "scary", "terrifying", "dark", "creepy", "fear", "supernatural", "haunted"],
+    "international": ["international", "foreign", "foreign language", "subtitles", "bollywood", "french", "indian"],
+    "martial arts": ["martial arts", "kung fu", "karate", "samurai", "bruce lee", "jackie chan"],
+    "music": ["music", "musical", "song", "dance", "concert", "singer", "band"],
+    "romance": ["romance", "romantic", "love", "relationship", "date night", "love story"],
+    "science fiction": ["sci-fi", "scifi", "science fiction", "space", "future", "alien", "robot", "futuristic", "dystopian", "mind bending", "mind-bending", "time travel"],
+    "sports": ["sports", "sport", "football", "basketball", "boxing", "racing", "wrestling", "golf"],
+    "thriller": ["thriller", "suspense", "tense", "intense", "twist", "plot twist", "suspenseful"],
+    "travel": ["travel", "world", "places", "nature trip"],
+    "tv show": ["tv show", "series", "season", "episodes", "sitcom"],
+    "war": ["war", "military", "soldier", "army"],
+    "western": ["western", "cowboy"],
+}
 
 
 def rating_to_sentiment(rating):
@@ -323,7 +366,7 @@ def extract_request_keywords(message):
     stop_words = {
         "a", "an", "and", "are", "for", "i", "in", "is", "me", "movie",
         "of", "please", "recommend", "show", "something", "that", "the",
-        "to", "want", "watch", "with"
+        "to", "want", "watch", "with", "film", "genre", "vibe"
     }
     words = [
         word.strip(".,!?;:()[]{}\"'").lower()
@@ -332,11 +375,41 @@ def extract_request_keywords(message):
     return [word for word in words if len(word) > 2 and word not in stop_words]
 
 
+def extract_requested_genres(message):
+    message = message.lower()
+    requested_genres = []
+
+    for genre, keywords in GENRE_VIBE_KEYWORDS.items():
+        if any(keyword in message for keyword in keywords):
+            requested_genres.append(genre)
+
+    return requested_genres
+
+
+def genre_match_score(genres, requested_genres):
+    if not requested_genres:
+        return 0
+
+    genres = str(genres).lower()
+    return sum(genre in genres for genre in requested_genres)
+
+
 def recommend_movies(user_id, user_message="", top_n=1):
     if recommender_model is None:
         return []
 
     movie_titles = recommender_model["movie_titles"][["movie_id", "title"]].drop_duplicates()
+    if not movie_metadata.empty:
+        movie_titles = movie_titles.merge(
+            movie_metadata[["movie_id", "genres"]],
+            on="movie_id",
+            how="left",
+        )
+    else:
+        movie_titles["genres"] = ""
+
+    movie_titles["genres"] = movie_titles["genres"].fillna("")
+
     feedback_user_bias, feedback_movie_bias = build_feedback_biases(
         recommender_model["global_mean"]
     )
@@ -368,8 +441,14 @@ def recommend_movies(user_id, user_message="", top_n=1):
     else:
         unseen_movies["title_match_score"] = 0
 
+    requested_genres = extract_requested_genres(user_message)
+    unseen_movies["genre_match_score"] = unseen_movies["genres"].apply(
+        lambda genres: genre_match_score(genres, requested_genres)
+    )
+
     unseen_movies["final_score"] = (
         unseen_movies["predicted_rating"] + unseen_movies["title_match_score"] * 0.35
+        + unseen_movies["genre_match_score"] * 0.75
     )
 
     recommendations = unseen_movies.sort_values(
@@ -383,6 +462,7 @@ def recommend_movies(user_id, user_message="", top_n=1):
                 "movie_id": int(movie["movie_id"]),
                 "title": str(movie["title"]),
                 "predicted_rating": float(movie["predicted_rating"]),
+                "genres": str(movie.get("genres", "")),
             }
         )
 
@@ -485,9 +565,12 @@ def create_recommendation_response(user_id, user_message):
         }
 
     movie = recommendations[0]
+    genres_text = movie.get("genres", "").strip()
+    genre_sentence = f" It matches this kind of request through: {genres_text}." if genres_text else ""
     assistant_message = (
         f"I recommend {movie['title']}. "
         f"My predicted rating for you is {movie['predicted_rating']:.2f}/5. "
+        f"{genre_sentence} "
         "Watch it, then tell me how you felt and rate it."
     )
 
