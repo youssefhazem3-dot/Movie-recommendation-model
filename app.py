@@ -21,7 +21,11 @@ USE_POSTGRES = bool(DATABASE_URL)
 RECOMMENDER_PATH = BASE_DIR / "netflix_recommendation_model.joblib"
 NLP_MODEL_PATH = BASE_DIR / "netflix_review_nlp_model.joblib"
 
-app = Flask(__name__)
+app = Flask(
+    __name__,
+    template_folder=str(BASE_DIR / "templates"),
+    static_folder=str(BASE_DIR / "static"),
+)
 app.secret_key = os.environ.get("SECRET_KEY", "change-this-secret-key")
 
 if USE_POSTGRES:
