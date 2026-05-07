@@ -9,6 +9,7 @@ const pendingReviewBar = document.querySelector("#pendingReviewBar");
 const pendingReviewText = document.querySelector("#pendingReviewText");
 const pendingMovieTitle = document.querySelector("#pendingMovieTitle");
 const pendingMovieRating = document.querySelector("#pendingMovieRating");
+const pendingMovieMaturity = document.querySelector("#pendingMovieMaturity");
 const feedbackMovieId = document.querySelector("#feedbackMovieId");
 const feedbackMovieTitle = document.querySelector("#feedbackMovieTitle");
 
@@ -72,6 +73,9 @@ function showFeedbackPanel(movie) {
     showPendingReviewBar(movie);
     pendingMovieTitle.textContent = movie.title;
     pendingMovieRating.textContent = `Predicted rating: ${Number(movie.predicted_rating).toFixed(2)}/5`;
+    if (pendingMovieMaturity) {
+        pendingMovieMaturity.textContent = `Estimated maturity: ${movie.age_rating || "Teen"}`;
+    }
     feedbackMovieId.value = movie.movie_id;
     feedbackMovieTitle.value = movie.title;
 }

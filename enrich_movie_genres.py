@@ -9,6 +9,7 @@ BASE_DIR = Path(__file__).resolve().parent
 MOVIES_PATH = BASE_DIR / "Movies 67.csv"
 BACKUP_PATH = BASE_DIR / "Movies 67_original.csv"
 REPORT_PATH = BASE_DIR / "genre_enrichment_report.csv"
+MATURITY_REPORT_PATH = BASE_DIR / "maturity_enrichment_report.csv"
 TMDB_CACHE_PATH = BASE_DIR / "tmdb_cache.json"
 
 TMDB_GENRES = {
@@ -87,6 +88,46 @@ KEYWORD_RULES = [
     (r"dance|ballet", "Dance,Music"),
     (r"train|travel|world|africa|china|australia|france", "Travel,Documentary"),
 ]
+
+
+def infer_age_rating(title, genres):
+    title = str(title).lower()
+    genres = str(genres).lower()
+
+    if re.search(
+        r"18\+|adult|erotic|porn|sex|sexual|nude|naked|kama sutra|strip|stripper|"
+        r"playboy|hustler|cathouse|red shoe diaries|temple of flesh|lesbos|sleazy|"
+        r"bacchanales|adultery|vagina monologues|jungle holocaust|exorcist|"
+        r"serial killer|scarface|casino:|godfather|raging bull",
+        title,
+    ):
+        return "18+", "adult_title_rule"
+
+    if re.search(
+        r"horror|thriller|murder|killer|blood|violent|violence|war|mafia|crime|"
+        r"gangster|martial arts|bloodsport|bloodfist|robocop|highlander",
+        title,
+    ):
+        return "16+", "older_teen_title_rule"
+
+    if "children" in genres or "family" in genres:
+        if any(genre in genres for genre in ["fantasy", "adventure", "action"]):
+            return "7+", "family_adventure_genre"
+        return "3+", "family_genre"
+
+    if any(genre in genres for genre in ["health & fitness", "exercise"]):
+        return "3+", "all_ages_genre"
+
+    if any(genre in genres for genre in ["horror", "thriller", "crime", "war", "martial arts"]):
+        return "16+", "older_teen_genre"
+
+    if any(genre in genres for genre in ["documentary", "history", "sports", "music", "travel"]):
+        return "7+", "general_audience_genre"
+
+    if any(genre in genres for genre in ["animation", "fantasy", "adventure", "science fiction", "action"]):
+        return "Teen", "teen_genre"
+
+    return "Teen", "default_teen"
 
 
 def clean_title(title):
@@ -172,6 +213,7 @@ def fill_missing_genres():
     tmdb_cache = load_tmdb_cache()
     existing_lookup = build_existing_genre_lookup(df)
     report_rows = []
+    maturity_report_rows = []
 
     missing_mask = df["genres"].isna() | (df["genres"].astype(str).str.strip() == "")
 
@@ -206,9 +248,27 @@ def fill_missing_genres():
             "source": source,
         })
 
+    age_results = df.apply(
+        lambda row: infer_age_rating(row["title"], row["genres"]),
+        axis=1,
+        result_type="expand",
+    )
+    df["age_rating"] = age_results[0]
+
+    for row, maturity_source in zip(df.itertuples(index=False), age_results[1]):
+        maturity_report_rows.append({
+            "movie_id": row.movie_id,
+            "title": row.title,
+            "genres": row.genres,
+            "age_rating": row.age_rating,
+            "source": maturity_source,
+        })
+
     report_df = pd.DataFrame(report_rows)
+    maturity_report_df = pd.DataFrame(maturity_report_rows)
     df.to_csv(MOVIES_PATH, index=False)
     report_df.to_csv(REPORT_PATH, index=False)
+    maturity_report_df.to_csv(MATURITY_REPORT_PATH, index=False)
 
     print("Original missing genres:", int(missing_mask.sum()))
     print("Remaining missing genres:", int((df["genres"].isna() | (df["genres"].astype(str).str.strip() == "")).sum()))
@@ -216,9 +276,13 @@ def fill_missing_genres():
     print("Fill sources:")
     print(report_df["source"].value_counts())
     print()
+    print("Age rating distribution:")
+    print(df["age_rating"].value_counts())
+    print()
     print("Saved updated file:", MOVIES_PATH)
     print("Saved backup file:", BACKUP_PATH)
     print("Saved report file:", REPORT_PATH)
+    print("Saved maturity report file:", MATURITY_REPORT_PATH)
 
 
 if __name__ == "__main__":

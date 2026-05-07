@@ -57,7 +57,7 @@
             <textarea
                 name="message"
                 rows="3"
-                placeholder="Example: I want something emotional and exciting tonight"
+                placeholder="Example: I want a teen sci-fi movie, or a family friendly comedy"
                 required
             ></textarea>
             <button type="submit">Send</button>
@@ -102,6 +102,11 @@
             <p id="pendingMovieRating">
                 {% if pending_movie %}
                     Predicted rating: {{ "%.2f"|format(pending_movie.predicted_rating) }}/5
+                {% endif %}
+            </p>
+            <p id="pendingMovieMaturity">
+                {% if pending_movie %}
+                    Estimated maturity: {{ pending_movie.age_rating|default("Teen") }}
                 {% endif %}
             </p>
         </div>

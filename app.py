@@ -155,12 +155,16 @@ recommender_model = load_recommender_model()
 
 def load_movie_metadata():
     if not MOVIE_METADATA_PATH.exists():
-        return pd.DataFrame(columns=["movie_id", "title", "genres"])
+        return pd.DataFrame(columns=["movie_id", "title", "genres", "age_rating"])
 
     metadata_df = pd.read_csv(MOVIE_METADATA_PATH)
-    metadata_df = metadata_df[["movie_id", "title", "genres"]].copy()
+    if "age_rating" not in metadata_df.columns:
+        metadata_df["age_rating"] = "Teen"
+
+    metadata_df = metadata_df[["movie_id", "title", "genres", "age_rating"]].copy()
     metadata_df["movie_id"] = metadata_df["movie_id"].astype(int)
     metadata_df["genres"] = metadata_df["genres"].fillna("").astype(str)
+    metadata_df["age_rating"] = metadata_df["age_rating"].fillna("Teen").astype(str)
 
     return metadata_df
 
@@ -192,6 +196,14 @@ GENRE_VIBE_KEYWORDS = {
     "tv show": ["tv show", "series", "season", "episodes", "sitcom"],
     "war": ["war", "military", "soldier", "army"],
     "western": ["western", "cowboy"],
+}
+
+MATURITY_LEVELS = {
+    "3+": 1,
+    "7+": 2,
+    "Teen": 3,
+    "16+": 4,
+    "18+": 5,
 }
 
 
@@ -394,6 +406,60 @@ def genre_match_score(genres, requested_genres):
     return sum(genre in genres for genre in requested_genres)
 
 
+def extract_maturity_preference(message):
+    message = message.lower()
+
+    if any(phrase in message for phrase in ["not adult", "no adult", "not 18", "without adult"]):
+        return {"target": "Teen", "max_level": 3}
+
+    if any(phrase in message for phrase in ["18+", "adult", "mature audience", "for adults", "grown up"]):
+        return {"target": "18+", "min_level": 5}
+
+    if any(phrase in message for phrase in ["16+", "older teen", "older teens", "older than teen", "older than teens"]):
+        return {"target": "16+", "min_level": 4}
+
+    if any(phrase in message for phrase in ["teen", "teenager", "13+", "pg-13"]):
+        return {"target": "Teen", "max_level": 3}
+
+    if any(phrase in message for phrase in ["7+", "older kids", "for kids", "kid friendly"]):
+        return {"target": "7+", "max_level": 2}
+
+    if any(phrase in message for phrase in ["3+", "all ages", "for everyone", "family friendly", "family-friendly"]):
+        return {"target": "3+", "max_level": 1}
+
+    return None
+
+
+def get_maturity_level(age_rating):
+    return MATURITY_LEVELS.get(str(age_rating).strip(), MATURITY_LEVELS["Teen"])
+
+
+def maturity_allowed(age_rating, preference):
+    if not preference:
+        return True
+
+    level = get_maturity_level(age_rating)
+    if "max_level" in preference:
+        return level <= preference["max_level"]
+    if "min_level" in preference:
+        return level >= preference["min_level"]
+    return True
+
+
+def maturity_match_score(age_rating, preference):
+    if not preference:
+        return 0
+
+    level = get_maturity_level(age_rating)
+    target_level = get_maturity_level(preference["target"])
+
+    if level == target_level:
+        return 1.0
+    if maturity_allowed(age_rating, preference):
+        return 0.35
+    return -3.0
+
+
 def recommend_movies(user_id, user_message="", top_n=1):
     if recommender_model is None:
         return []
@@ -401,14 +467,16 @@ def recommend_movies(user_id, user_message="", top_n=1):
     movie_titles = recommender_model["movie_titles"][["movie_id", "title"]].drop_duplicates()
     if not movie_metadata.empty:
         movie_titles = movie_titles.merge(
-            movie_metadata[["movie_id", "genres"]],
+            movie_metadata[["movie_id", "genres", "age_rating"]],
             on="movie_id",
             how="left",
         )
     else:
         movie_titles["genres"] = ""
+        movie_titles["age_rating"] = "Teen"
 
     movie_titles["genres"] = movie_titles["genres"].fillna("")
+    movie_titles["age_rating"] = movie_titles["age_rating"].fillna("Teen")
 
     feedback_user_bias, feedback_movie_bias = build_feedback_biases(
         recommender_model["global_mean"]
@@ -446,9 +514,24 @@ def recommend_movies(user_id, user_message="", top_n=1):
         lambda genres: genre_match_score(genres, requested_genres)
     )
 
+    maturity_preference = extract_maturity_preference(user_message)
+    unseen_movies["maturity_match_score"] = unseen_movies["age_rating"].apply(
+        lambda age_rating: maturity_match_score(age_rating, maturity_preference)
+    )
+
+    if maturity_preference:
+        maturity_filtered_movies = unseen_movies[
+            unseen_movies["age_rating"].apply(
+                lambda age_rating: maturity_allowed(age_rating, maturity_preference)
+            )
+        ]
+        if not maturity_filtered_movies.empty:
+            unseen_movies = maturity_filtered_movies
+
     unseen_movies["final_score"] = (
         unseen_movies["predicted_rating"] + unseen_movies["title_match_score"] * 0.35
         + unseen_movies["genre_match_score"] * 0.75
+        + unseen_movies["maturity_match_score"] * 0.90
     )
 
     recommendations = unseen_movies.sort_values(
@@ -463,6 +546,7 @@ def recommend_movies(user_id, user_message="", top_n=1):
                 "title": str(movie["title"]),
                 "predicted_rating": float(movie["predicted_rating"]),
                 "genres": str(movie.get("genres", "")),
+                "age_rating": str(movie.get("age_rating", "Teen")),
             }
         )
 
@@ -567,10 +651,12 @@ def create_recommendation_response(user_id, user_message):
     movie = recommendations[0]
     genres_text = movie.get("genres", "").strip()
     genre_sentence = f" It matches this kind of request through: {genres_text}." if genres_text else ""
+    age_rating = movie.get("age_rating", "Teen")
+    maturity_sentence = f" Estimated maturity rating: {age_rating}."
     assistant_message = (
         f"I recommend {movie['title']}. "
         f"My predicted rating for you is {movie['predicted_rating']:.2f}/5. "
-        f"{genre_sentence} "
+        f"{genre_sentence}{maturity_sentence} "
         "Watch it, then tell me how you felt and rate it."
     )
 
