@@ -1,0 +1,11 @@
+flask
+gunicorn
+psycopg[binary]
+pandas
+numpy
+scikit-learn
+scipy
+joblib
+werkzeug
+matplotlib
+seaborn
