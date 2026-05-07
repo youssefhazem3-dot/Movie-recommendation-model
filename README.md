@@ -46,6 +46,16 @@ On Railway, add a PostgreSQL service to the same project. Railway provides `DATA
 
 If `DATABASE_URL` is not set, the app falls back to local SQLite using `netflix_app.db`.
 
+## Railway Deploy
+
+Use this start command:
+
+```bash
+gunicorn app:app --bind 0.0.0.0:$PORT
+```
+
+The file `main.py` is included only as a compatibility entrypoint for platforms that try to run `main:app`.
+
 ## App Flow
 
 1. A user creates an account or logs in.
