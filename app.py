@@ -616,8 +616,8 @@ def train_nlp_model_from_feedback():
         return False, "No feedback data yet."
 
     nlp_df = feedback_df.dropna(subset=["review_text", "sentiment_label"]).copy()
-    if nlp_df.shape[0] < 5:
-        return False, "Need at least 5 feedback reviews before training NLP."
+    if nlp_df.shape[0] < 50:
+        return False, "Need at least 50 feedback reviews before training NLP."
     if nlp_df["sentiment_label"].nunique() < 2:
         return False, "Need at least 2 sentiment classes before training NLP."
 
