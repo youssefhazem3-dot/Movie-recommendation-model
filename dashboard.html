@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+    <div>
+        <p class="eyebrow">Hybrid SVD + feedback NLP</p>
+        <h1>Ask For A Movie</h1>
+        <p>Tell the model what you feel like watching. It recommends one movie, then learns from your rating and written review.</p>
+    </div>
+</section>
+
+{% if not model_ready %}
+    <div class="alert danger">
+        netflix_recommendation_model.joblib was not found. Put it inside the project folder.
+    </div>
+{% endif %}
+
+<section class="dashboard-layout">
+    <div class="chat-shell">
+        <div class="chat-window" id="chatWindow">
+            {% if chat_history %}
+                {% for item in chat_history %}
+                    <div class="chat-message {{ item.role }}">
+                        <span>{{ item.role|title }}</span>
+                        <p>{{ item.message }}</p>
+                    </div>
+                {% endfor %}
+            {% else %}
+                <div class="chat-message assistant">
+                    <span>Model</span>
+                    <p>Tell me what kind of movie you want tonight. I will pick one and wait for your rating.</p>
+                </div>
+            {% endif %}
+
+            <div class="chat-message assistant typing-message is-hidden" id="typingIndicator">
+                <span>Model</span>
+                <p class="typing-dots">
+                    <i></i>
+                    <i></i>
+                    <i></i>
+                </p>
+            </div>
+        </div>
+
+        <div class="pending-review-bar {% if not pending_movie %}is-hidden{% endif %}" id="pendingReviewBar">
+            <div>
+                <strong id="pendingReviewText">
+                    {% if pending_movie %}
+                        Ready to review {{ pending_movie.title }}?
+                    {% endif %}
+                </strong>
+                <span>Your feedback improves the next recommendation.</span>
+            </div>
+            <button type="button" id="openFeedbackBtn">Review Movie</button>
+        </div>
+
+        <form method="post" class="chat-form" id="chatForm" data-api-url="{{ url_for('api_recommend') }}">
+            <textarea
+                name="message"
+                rows="3"
+                placeholder="Example: I want something emotional and exciting tonight"
+                required
+            ></textarea>
+            <button type="submit">Send</button>
+        </form>
+    </div>
+
+    <aside class="side-panel">
+        <div class="panel-header">
+            <div>
+                <p class="eyebrow">Anonymous</p>
+                <h2>Recent Reviews</h2>
+            </div>
+            <a href="{{ url_for('reviews') }}">View all</a>
+        </div>
+
+        {% if recent_reviews %}
+            <div class="review-list compact">
+                {% for row in recent_reviews %}
+                    <article class="review-card">
+                        <div class="review-topline">
+                            <strong>{{ row.title }}</strong>
+                            <span>{{ row.rating }}/5</span>
+                        </div>
+                        <p>{{ row.review_text }}</p>
+                        <small>{{ row.sentiment_label }} review</small>
+                    </article>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="muted">No public reviews yet. The first feedback you submit will appear here anonymously.</p>
+        {% endif %}
+    </aside>
+</section>
+
+<section class="feedback-modal is-hidden" id="feedbackPanel" aria-hidden="true">
+    <div class="feedback-dialog">
+        <button type="button" class="modal-close" id="feedbackCloseBtn">Close</button>
+
+        <div>
+            <p class="eyebrow">Current recommendation</p>
+            <h2 id="pendingMovieTitle">{{ pending_movie.title if pending_movie else '' }}</h2>
+            <p id="pendingMovieRating">
+                {% if pending_movie %}
+                    Predicted rating: {{ "%.2f"|format(pending_movie.predicted_rating) }}/5
+                {% endif %}
+            </p>
+        </div>
+
+        <form method="post" action="{{ url_for('feedback') }}" id="feedbackForm" data-api-url="{{ url_for('api_feedback') }}">
+            <input type="hidden" name="movie_id" id="feedbackMovieId" value="{{ pending_movie.movie_id if pending_movie else '' }}">
+            <input type="hidden" name="title" id="feedbackMovieTitle" value="{{ pending_movie.title if pending_movie else '' }}">
+
+            <label>Your rating</label>
+            <select name="rating" required>
+                <option value="5">5 - Loved it</option>
+                <option value="4">4 - Good</option>
+                <option value="3">3 - Okay</option>
+                <option value="2">2 - Bad</option>
+                <option value="1">1 - Hated it</option>
+            </select>
+
+            <label>How did you feel while watching?</label>
+            <textarea
+                name="review_text"
+                rows="4"
+                placeholder="Example: I felt excited, the story kept me focused, and the ending was satisfying."
+                required
+            ></textarea>
+
+            <button type="submit">Submit Feedback</button>
+        </form>
+    </div>
+</section>
+
+{% endblock %}
