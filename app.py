@@ -15,7 +15,11 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 
 BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = BASE_DIR / "netflix_app.db"
+IS_VERCEL = bool(os.environ.get("VERCEL"))
+DB_PATH = Path(os.environ.get(
+    "SQLITE_DB_PATH",
+    "/tmp/netflix_app.db" if IS_VERCEL else str(BASE_DIR / "netflix_app.db"),
+))
 DATABASE_URL = os.environ.get("DATABASE_URL")
 USE_POSTGRES = bool(DATABASE_URL)
 RECOMMENDER_PATH = BASE_DIR / "netflix_recommendation_model.joblib"
