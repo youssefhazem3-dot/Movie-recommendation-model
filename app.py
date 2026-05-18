@@ -5,10 +5,20 @@ import importlib
 import os
 import sqlite3
 
-import joblib
+joblib = importlib.import_module("joblib")
 import numpy as np
 import pandas as pd
 from flask import Flask, flash, jsonify, redirect, render_template, request, session, url_for
+
+load_dotenv = None
+try:
+    dotenv = importlib.import_module("dotenv")
+    load_dotenv = dotenv.load_dotenv
+except ImportError:
+    load_dotenv = None
+
+if load_dotenv:
+    load_dotenv()
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
