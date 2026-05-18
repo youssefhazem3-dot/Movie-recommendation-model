@@ -55,6 +55,12 @@ Use this start command:
 gunicorn app:app --bind 0.0.0.0:$PORT
 ```
 
+Your deployed Railway app is available at:
+
+```text
+https://movierecommendation.up.railway.app/dashboard
+```
+
 The file `main.py` is included only as a compatibility entrypoint for platforms that try to run `main:app`.
 
 ## Vercel Deployment
