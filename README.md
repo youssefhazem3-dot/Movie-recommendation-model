@@ -57,6 +57,16 @@ gunicorn app:app --bind 0.0.0.0:$PORT
 
 The file `main.py` is included only as a compatibility entrypoint for platforms that try to run `main:app`.
 
+## Vercel Deployment
+
+If you deploy this app to Vercel, your site will be available at a URL like:
+
+```text
+https://your-vercel-app-name.vercel.app
+```
+
+Replace `your-vercel-app-name` with your actual Vercel project name. If you already have the real Vercel URL, update this README line with that exact link.
+
 ## App Flow
 
 1. A user creates an account or logs in.
