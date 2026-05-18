@@ -1,0 +1,13 @@
+df = pd.read_csv(
+    "netflix_full_dataset.csv",
+    usecols=["user_id","title","rating","genres"],   # add title/year if needed
+    dtype={
+        "user_id": "int32",
+        "title": "string",
+        "rating": "int8",
+        "genres": "string"
+    }
+)
+
+print(df.shape)
+print(df.head())

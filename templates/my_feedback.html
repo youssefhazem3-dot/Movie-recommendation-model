@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+    <h1>My Feedback</h1>
+    <p>Your ratings and reviews are saved here and used to retrain the NLP feedback model.</p>
+</section>
+
+<section class="panel">
+    {% if rows %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Rating</th>
+                    <th>Sentiment</th>
+                    <th>Review</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                <tr>
+                    <td>{{ row.title }}</td>
+                    <td>{{ row.rating }}</td>
+                    <td>{{ row.sentiment_label }}</td>
+                    <td>{{ row.review_text }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>No feedback saved yet.</p>
+    {% endif %}
+</section>
+{% endblock %}
