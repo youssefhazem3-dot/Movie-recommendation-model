@@ -3,6 +3,7 @@ from functools import wraps
 from pathlib import Path
 import importlib
 import os
+import re
 import sqlite3
 
 joblib = importlib.import_module("joblib")
@@ -224,6 +225,29 @@ MATURITY_LEVELS = {
     "18+": 5,
 }
 
+NEGATIVE_REVIEW_PATTERNS = [
+    (r"\b(?:hated?|disliked?|awful|terrible|horrible|worst|trash|waste)\b", 2),
+    (r"\b(?:boring|bored|dull|slow|weak|poor|bad|messy|flat|overrated)\b", 1),
+    (r"\b(?:disappointed|disappointing|underwhelming|confusing|annoying|predictable|pointless|flawed)\b", 1),
+    (r"\bnot\s+(?:good|great|funny|interesting|worth|enjoyable|recommend(?:ed)?)\b", 2),
+    (r"\b(?:didn'?t|did not|couldn'?t|could not)\s+(?:like|enjoy|finish|connect)\b", 2),
+    (r"\b(?:wouldn'?t|would not)\s+recommend\b", 2),
+]
+
+POSITIVE_REVIEW_PATTERNS = [
+    (r"\b(?:loved?|liked?|enjoyed?|amazing|excellent|great|good|perfect|fantastic)\b", 1),
+    (r"\b(?:exciting|funny|beautiful|interesting|satisfying|powerful|emotional)\b", 1),
+    (r"\b(?:worth watching|highly recommend|would recommend|kept me hooked)\b", 2),
+]
+
+NEGATED_NEGATIVE_PHRASES = [
+    "not bad",
+    "not terrible",
+    "not awful",
+    "not boring",
+    "not horrible",
+]
+
 
 def rating_to_sentiment(rating):
     rating = int(rating)
@@ -234,7 +258,40 @@ def rating_to_sentiment(rating):
     return "Positive"
 
 
+def score_review_text(review_text):
+    review_lower = re.sub(r"\s+", " ", f" {review_text.lower()} ")
+
+    positive_score = 0
+    for phrase in NEGATED_NEGATIVE_PHRASES:
+        if phrase in review_lower:
+            positive_score += 1
+            review_lower = review_lower.replace(phrase, " ")
+
+    negative_score = sum(
+        weight * len(re.findall(pattern, review_lower))
+        for pattern, weight in NEGATIVE_REVIEW_PATTERNS
+    )
+    positive_score += sum(
+        weight * len(re.findall(pattern, review_lower))
+        for pattern, weight in POSITIVE_REVIEW_PATTERNS
+    )
+
+    if negative_score >= positive_score + 1 and negative_score > 0:
+        return "Negative"
+    if positive_score >= negative_score + 1 and positive_score > 0:
+        return "Positive"
+    return None
+
+
 def predict_review_sentiment(review_text, rating):
+    text_sentiment = score_review_text(review_text)
+    if text_sentiment is not None:
+        return text_sentiment
+
+    rating_sentiment = rating_to_sentiment(rating)
+    if rating_sentiment == "Neutral":
+        return "Neutral"
+
     if NLP_MODEL_PATH.exists():
         try:
             nlp_model = joblib.load(NLP_MODEL_PATH)
@@ -242,13 +299,31 @@ def predict_review_sentiment(review_text, rating):
         except Exception:
             pass
 
-    return rating_to_sentiment(rating)
+    return rating_sentiment
+
+
+def effective_feedback_rating(row):
+    rating = int(row["rating"])
+    sentiment_label = row.get("sentiment_label", rating_to_sentiment(rating))
+
+    if sentiment_label == "Negative" and rating >= 4:
+        return 2
+    if sentiment_label == "Positive" and rating <= 2:
+        return 4
+    if sentiment_label == "Neutral":
+        return 3
+    return rating
 
 
 def build_feedback_response(title, rating, review_text, sentiment_label):
     review_lower = review_text.lower()
 
     if sentiment_label == "Positive":
+        if rating <= 2:
+            return (
+                f"Your written review sounds positive, even though the rating for {title} was low. "
+                "I will treat this as mixed feedback and avoid overreacting to the stars alone."
+            )
         if rating >= 4:
             return (
                 f"It sounds like {title} worked well for you. "
@@ -260,6 +335,11 @@ def build_feedback_response(title, rating, review_text, sentiment_label):
         )
 
     if sentiment_label == "Negative":
+        if rating >= 4:
+            return (
+                f"The stars were high, but your review sounds negative for {title}. "
+                "I will trust the written feedback and reduce similar recommendations."
+            )
         if "slow" in review_lower or "boring" in review_lower or "bored" in review_lower:
             return (
                 f"Got it, {title} felt too slow for you. "
@@ -304,7 +384,10 @@ def get_feedback_df():
         """
     ).fetchall()
     conn.close()
-    return pd.DataFrame([dict(row) for row in rows])
+    feedback_df = pd.DataFrame([dict(row) for row in rows])
+    if not feedback_df.empty:
+        feedback_df["effective_rating"] = feedback_df.apply(effective_feedback_rating, axis=1)
+    return feedback_df
 
 
 def safe_series_get(series, key, default=0):
@@ -321,8 +404,9 @@ def build_feedback_biases(global_mean):
     if feedback_df.empty:
         return pd.Series(dtype=float), pd.Series(dtype=float)
 
-    user_mean = feedback_df.groupby("user_id")["rating"].mean()
-    movie_mean = feedback_df.groupby("movie_id")["rating"].mean()
+    rating_column = "effective_rating" if "effective_rating" in feedback_df.columns else "rating"
+    user_mean = feedback_df.groupby("user_id")[rating_column].mean()
+    movie_mean = feedback_df.groupby("movie_id")[rating_column].mean()
 
     return user_mean - global_mean, movie_mean - global_mean
 
@@ -353,7 +437,8 @@ def build_user_feedback_profile(user_id, feedback_df):
         if movie_idx is None:
             continue
 
-        weight = float(row.rating) - global_mean
+        row_rating = getattr(row, "effective_rating", row.rating)
+        weight = float(row_rating) - global_mean
         if abs(weight) < 0.1:
             continue
 
