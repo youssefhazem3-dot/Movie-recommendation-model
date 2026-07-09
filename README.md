@@ -1,137 +1,135 @@
-# Movie Recommender Website
+# Movie Recommender
 
-Recommended stack:
+A chat-based movie recommendation system built as a graduation project. The app combines collaborative filtering, movie metadata, and user feedback so it can recommend movies through a natural conversation instead of a search-by-ID flow.
 
-- Backend language: Python
-- Web framework: Flask
-- Frontend: HTML, CSS, Jinja templates
-- Local database: SQLite
-- Deployment database: PostgreSQL
+## What The App Does
 
-Python is the right backend choice here because the trained model is saved as a `.joblib` file.
+- Lets users sign up and log in
+- Recommends movies from a chat message
+- Matches genre, vibe, and age-rating preferences
+- Collects a 1 to 5 star rating plus a written review
+- Learns from saved feedback to improve later recommendations
+- Shows anonymous community reviews
+- Stores data in SQLite locally and PostgreSQL in production
 
-## Setup
+If the user gives a high rating but writes a negative review, the written review is treated as the stronger signal for sentiment and future learning.
 
-1. Put `netflix_recommendation_model.joblib` inside this folder.
-2. Optional but recommended: put `netflix_review_nlp_model.joblib` inside this folder after training the ACL IMDb NLP model.
-3. Keep `Movies 67.csv` inside this folder so the chat can match genre and vibe requests.
-4. Install dependencies:
+## How It Works
+
+1. The user writes a request like a genre, vibe, or mood.
+2. The app extracts movie preferences from the message.
+3. The recommender ranks candidate movies using the saved model and metadata.
+4. The app shows one recommendation and waits for feedback.
+5. The user rates the movie and writes how they felt.
+6. The feedback is stored in the database and used in later recommendations.
+7. The review text is also used for NLP sentiment analysis.
+
+## Model Components
+
+- `netflix_recommendation_model.joblib`
+  - Collaborative filtering / SVD recommendation model
+- `netflix_review_nlp_model.joblib`
+  - NLP sentiment model for positive, neutral, and negative reviews
+- `Movies 67.csv`
+  - Movie metadata used for genre, vibe, and maturity matching
+- `aclImdb/`
+  - Local training dataset used for the NLP notebook
+
+## Training Notebook
+
+The notebook is [`model_training.ipynb`](model_training.ipynb). It includes:
+
+- Data cleaning
+- Exploratory data analysis
+- Rating and popularity charts
+- Genre and maturity analysis
+- SVD-based recommendation training
+- Review sentiment training with ACL IMDb
+
+## Tech Stack
+
+- Python
+- Flask
+- Jinja2 templates
+- HTML, CSS, JavaScript
+- pandas, NumPy, scikit-learn, joblib
+- SQLite for local development
+- PostgreSQL for deployed environments
+- Railway / Vercel deployment
+
+## Local Setup
+
+1. Install Python dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-4. Run the site:
+2. Make sure these files are in the project root:
+
+```text
+app.py
+netflix_recommendation_model.joblib
+netflix_review_nlp_model.joblib
+Movies 67.csv
+```
+
+3. Run the app:
 
 ```bash
 python app.py
 ```
 
-5. Open:
+4. Open the site:
 
 ```text
 http://127.0.0.1:5000
 ```
 
-For local development, the SQLite file `netflix_app.db` is created automatically.
-
 ## Database
 
-The app uses PostgreSQL automatically when this environment variable exists:
+The app uses SQLite by default and creates `netflix_app.db` automatically during local development.
 
-```text
-DATABASE_URL
-```
+If `DATABASE_URL` is set, the app switches to PostgreSQL. That is the recommended setup for Railway and other persistent deployments.
 
-On Railway, add a PostgreSQL service to the same project. Railway provides `DATABASE_URL` automatically, and the app creates the required tables on startup.
+Tables are created on startup, so the app can remember:
 
-If `DATABASE_URL` is not set, the app falls back to local SQLite using `netflix_app.db`.
+- user accounts
+- chat messages
+- movie recommendations
+- feedback reviews and ratings
 
-## Railway Deploy
+## Deployment
 
-Use this start command:
+Start command:
 
 ```bash
 gunicorn app:app --bind 0.0.0.0:$PORT
 ```
 
-Your deployed Railway app is available at:
+`main.py` is included as a compatibility entrypoint for platforms that expect `main:app`.
+
+Vercel can run the app, but persistent feedback storage should use PostgreSQL through `DATABASE_URL`.
+
+## Project Structure
 
 ```text
-https://movierecommendation.up.railway.app/dashboard
+app.py
+main.py
+model_training.ipynb
+MODEL_REPORT.md
+Movies 67.csv
+netflix_recommendation_model.joblib
+netflix_review_nlp_model.joblib
+templates/
+static/
+requirements.txt
+Procfile
+railway.json
 ```
 
-The file `main.py` is included only as a compatibility entrypoint for platforms that try to run `main:app`.
+## Notes
 
-## Vercel Deployment
-
-If you deploy this app to Vercel, your site will be available at a URL like:
-
-```text
-https://your-vercel-app-name.vercel.app
-```
-
-Replace `your-vercel-app-name` with your actual Vercel project name. If you already have the real Vercel URL, update this README line with that exact link.
-
-## App Flow
-
-1. A user creates an account or logs in.
-2. The user writes a chat message asking for a movie recommendation.
-3. The app loads `netflix_recommendation_model.joblib` and recommends one movie.
-4. The user rates the movie from 1 to 5 and writes how they felt while watching.
-5. The rating updates future recommendations for that user.
-6. The written review is saved and used to retrain the NLP sentiment model.
-7. Other users can read reviews anonymously from the community reviews page.
-
-## Model Direction
-
-The notebook trains a hybrid feedback-aware recommender:
-
-- SVD / Matrix Factorization as the main recommendation engine
-- User feedback stored as ratings and reviews
-- Feedback re-ranking on top of SVD recommendations
-- Genre/vibe matching from `Movies 67.csv`
-- ACL IMDb TF-IDF NLP model for positive/negative review sentiment
-
-The final saved files are:
-
-- `netflix_recommendation_model.joblib`
-- `netflix_review_nlp_model.joblib`
-
-The raw `aclImdb/` dataset folder is not committed to GitHub. Download/extract it locally before rerunning the NLP training notebook cells.
-
-## GitHub Notes
-
-Do commit:
-
-- `app.py`
-- `requirements.txt`
-- `README.md`
-- `templates/`
-- `static/`
-
-Do not commit:
-
-- `netflix_app.db`
-- `__pycache__/`
-- virtual environment folders
-
-You can commit `netflix_recommendation_model.joblib` only if it is small enough for GitHub. If it is large, upload it using Git LFS or keep it outside the repository and add it before running the app.
-
-## How The Model Remembers Feedback
-
-Every user review is saved in the `feedback` table:
-
-- app user id
-- Netflix user id
-- movie id
-- title
-- rating
-- review text
-- sentiment label
-
-The recommendation system reads old feedback from the database every time it recommends movies. The NLP model retrains from saved `review_text` and `sentiment_label` rows once enough feedback exists.
-
-The `chat_messages` table stores the visible conversation for each logged-in user.
-
-On Railway, this data is stored in PostgreSQL through `DATABASE_URL`.
+- The raw `aclImdb/` dataset is not meant to be committed to GitHub.
+- Do not commit `netflix_app.db` or virtual environment folders.
+- The trained `.joblib` files are what the app loads at runtime.
