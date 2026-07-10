@@ -30,7 +30,7 @@ If the user gives a high rating but writes a negative review, the written review
   - Collaborative filtering / SVD recommendation model
 - `netflix_review_nlp_model.joblib`
   - NLP sentiment model for positive, neutral, and negative reviews
-- `Movies 67.csv`
+- `movie_metadata.csv`
   - Movie metadata used for genre, vibe, and maturity matching
 - `aclImdb/`
   - Local training dataset used for the NLP notebook
@@ -71,7 +71,7 @@ pip install -r requirements.txt
 app.py
 netflix_recommendation_model.joblib
 netflix_review_nlp_model.joblib
-Movies 67.csv
+movie_metadata.csv
 ```
 
 3. Run the app:
@@ -118,7 +118,7 @@ app.py
 main.py
 model_training.ipynb
 MODEL_REPORT.md
-Movies 67.csv
+movie_metadata.csv
 netflix_recommendation_model.joblib
 netflix_review_nlp_model.joblib
 templates/

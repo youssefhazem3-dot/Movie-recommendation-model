@@ -6,8 +6,8 @@ import pandas as pd
 
 
 BASE_DIR = Path(__file__).resolve().parent
-MOVIES_PATH = BASE_DIR / "Movies 67.csv"
-BACKUP_PATH = BASE_DIR / "Movies 67_original.csv"
+MOVIES_PATH = BASE_DIR / "movie_metadata.csv"
+BACKUP_PATH = BASE_DIR / "movie_metadata_original.csv"
 REPORT_PATH = BASE_DIR / "genre_enrichment_report.csv"
 MATURITY_REPORT_PATH = BASE_DIR / "maturity_enrichment_report.csv"
 TMDB_CACHE_PATH = BASE_DIR / "tmdb_cache.json"

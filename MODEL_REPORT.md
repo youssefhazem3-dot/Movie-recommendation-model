@@ -49,7 +49,7 @@ The `date` and `year` columns were dropped for the main model because the curren
 
 ### 2.2 Movie Metadata Dataset
 
-The file `Movies 67.csv` is used as movie metadata for the deployed website.
+The file `movie_metadata.csv` is used as movie metadata for the deployed website.
 
 Current columns:
 
@@ -705,7 +705,7 @@ Main deployment files:
 | `static/` | CSS and JavaScript |
 | `netflix_recommendation_model.joblib` | Saved recommender |
 | `netflix_review_nlp_model.joblib` | Saved NLP model |
-| `Movies 67.csv` | Movie metadata with genres and age ratings |
+| `movie_metadata.csv` | Movie metadata with genres and age ratings |
 
 Railway start command:
 

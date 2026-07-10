@@ -36,7 +36,7 @@ DATABASE_URL = os.environ.get("DATABASE_URL") or os.environ.get("SUPABASE_DB_URL
 USE_POSTGRES = bool(DATABASE_URL)
 RECOMMENDER_PATH = BASE_DIR / "netflix_recommendation_model.joblib"
 NLP_MODEL_PATH = BASE_DIR / "netflix_review_nlp_model.joblib"
-MOVIE_METADATA_PATH = BASE_DIR / "Movies 67.csv"
+MOVIE_METADATA_PATH = BASE_DIR / "movie_metadata.csv"
 
 app = Flask(
     __name__,
@@ -477,6 +477,62 @@ def predict_rating(user_id, movie_id, feedback_user_bias, feedback_movie_bias, u
     return float(np.clip(pred, 1, 5))
 
 
+def normalize_movie_title(title):
+    return re.sub(r"[^a-z0-9]+", " ", str(title).lower()).strip()
+
+
+def split_genres(genres):
+    return [genre.strip().lower() for genre in re.split(r"[,|/]", str(genres)) if genre.strip()]
+
+
+def find_reference_movie(message, movie_catalog):
+    """Find a movie named by the user, such as 'something like John Wick'."""
+    if movie_catalog.empty:
+        return None
+
+    normalized_message = f" {normalize_movie_title(message)} "
+    matches = []
+    for _, movie in movie_catalog.dropna(subset=["title"]).iterrows():
+        normalized_title = normalize_movie_title(movie["title"])
+        if len(normalized_title.split()) < 2 and len(normalized_title) < 6:
+            continue
+        if normalized_title and f" {normalized_title} " in normalized_message:
+            matches.append(movie)
+
+    return max(matches, key=lambda movie: len(normalize_movie_title(movie["title"]))) if matches else None
+
+
+def get_reference_similarity_scores(movie_ids, reference_movie_id):
+    """Score candidates by latent-factor similarity to the user's reference movie."""
+    scores = np.zeros(len(movie_ids), dtype=float)
+    if recommender_model is None or reference_movie_id is None:
+        return scores
+
+    movie_factors = recommender_model.get("movie_factors")
+    movie_id_to_idx = recommender_model.get("movie_id_to_idx")
+    if movie_factors is None or movie_id_to_idx is None:
+        return scores
+
+    reference_idx = movie_id_to_idx.get(int(reference_movie_id), movie_id_to_idx.get(str(reference_movie_id)))
+    if reference_idx is None:
+        return scores
+
+    reference_vector = movie_factors[reference_idx]
+    reference_norm = np.linalg.norm(reference_vector)
+    if reference_norm == 0:
+        return scores
+
+    for position, movie_id in enumerate(movie_ids):
+        movie_idx = movie_id_to_idx.get(int(movie_id), movie_id_to_idx.get(str(movie_id)))
+        if movie_idx is None:
+            continue
+        movie_vector = movie_factors[movie_idx]
+        denominator = reference_norm * np.linalg.norm(movie_vector)
+        if denominator:
+            scores[position] = max(0.0, float(np.dot(reference_vector, movie_vector) / denominator))
+
+    return scores
+
 def extract_request_keywords(message):
     stop_words = {
         "a", "an", "and", "are", "for", "i", "in", "is", "me", "movie",
@@ -650,6 +706,7 @@ def recommend_movies(user_id, user_message="", top_n=1):
                 "predicted_rating": float(movie["predicted_rating"]),
                 "genres": str(movie.get("genres", "")),
                 "age_rating": str(movie.get("age_rating", "Teen")),
+                "reference_title": reference_title,
             }
         )
 
@@ -754,12 +811,14 @@ def create_recommendation_response(user_id, user_message):
     movie = recommendations[0]
     genres_text = movie.get("genres", "").strip()
     genre_sentence = f" It matches this kind of request through: {genres_text}." if genres_text else ""
+    reference_title = movie.get("reference_title", "")
+    similarity_sentence = f" I used {reference_title} as the style reference." if reference_title else ""
     age_rating = movie.get("age_rating", "Teen")
     maturity_sentence = f" Estimated maturity rating: {age_rating}."
     assistant_message = (
         f"I recommend {movie['title']}. "
         f"My predicted rating for you is {movie['predicted_rating']:.2f}/5. "
-        f"{genre_sentence}{maturity_sentence} "
+        f"{genre_sentence}{similarity_sentence}{maturity_sentence} "
         "Watch it, then tell me how you felt and rate it."
     )
 
