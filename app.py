@@ -55,7 +55,14 @@ def get_db():
             raise RuntimeError(
                 "Postgres support requires psycopg. Install it with `pip install psycopg[binary]`."
             )
-        return psycopg.connect(DATABASE_URL, row_factory=dict_row)
+        conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
+
+        # Supabase transaction pooling is the right mode for Vercel functions.
+        # It does not support prepared statements, so disable them for that URL.
+        if "pooler.supabase.com" in DATABASE_URL and ":6543" in DATABASE_URL:
+            conn.prepare_threshold = None
+
+        return conn
 
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
