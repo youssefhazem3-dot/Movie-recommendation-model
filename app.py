@@ -290,23 +290,40 @@ def score_review_text(review_text):
     return None
 
 
+def get_nlp_prediction(nlp_model, review_text, confidence_threshold=0.60):
+    """Return Neutral when review vocabulary is unknown or model confidence is low."""
+    vectorizer = nlp_model.named_steps.get("tfidf")
+    classifier = nlp_model.named_steps.get("lgModel")
+    if vectorizer is None or classifier is None:
+        return "Neutral"
+
+    features = vectorizer.transform([review_text])
+    if features.nnz == 0:
+        return "Neutral"
+
+    try:
+        probabilities = classifier.predict_proba(features)[0]
+        if float(np.max(probabilities)) < confidence_threshold:
+            return "Neutral"
+    except Exception:
+        pass
+
+    return classifier.predict(features)[0]
+
+
 def predict_review_sentiment(review_text, rating):
     text_sentiment = score_review_text(review_text)
     if text_sentiment is not None:
         return text_sentiment
 
-    rating_sentiment = rating_to_sentiment(rating)
-    if rating_sentiment == "Neutral":
-        return "Neutral"
-
     if NLP_MODEL_PATH.exists():
         try:
             nlp_model = joblib.load(NLP_MODEL_PATH)
-            return nlp_model.predict([review_text])[0]
+            return get_nlp_prediction(nlp_model, review_text)
         except Exception:
-            pass
+            return "Neutral"
 
-    return rating_sentiment
+    return rating_to_sentiment(rating)
 
 
 def effective_feedback_rating(row):
@@ -667,18 +684,27 @@ def recommend_movies(user_id, user_message="", top_n=1):
         for movie_id in unseen_movies["movie_id"]
     ]
 
-    keywords = extract_request_keywords(user_message)
-    if keywords:
-        unseen_movies["title_match_score"] = unseen_movies["title"].str.lower().apply(
-            lambda title: sum(keyword in title for keyword in keywords)
-        )
-    else:
-        unseen_movies["title_match_score"] = 0
+    # Match moods through metadata, not words that happen to appear in a title.
+    reference_movie = find_reference_movie(user_message, movie_titles)
+    reference_title = ""
+    reference_movie_id = None
+    reference_genres = []
 
-    requested_genres = extract_requested_genres(user_message)
+    if reference_movie is not None:
+        reference_title = str(reference_movie["title"])
+        reference_movie_id = int(reference_movie["movie_id"])
+        reference_genres = split_genres(reference_movie.get("genres", ""))
+
+    requested_genres = list(dict.fromkeys(extract_requested_genres(user_message) + reference_genres))
     unseen_movies["genre_match_score"] = unseen_movies["genres"].apply(
         lambda genres: genre_match_score(genres, requested_genres)
     )
+    unseen_movies["reference_similarity_score"] = get_reference_similarity_scores(
+        unseen_movies["movie_id"].tolist(), reference_movie_id
+    )
+
+    if reference_movie_id is not None:
+        unseen_movies = unseen_movies[unseen_movies["movie_id"] != reference_movie_id].copy()
 
     maturity_preference = extract_maturity_preference(user_message)
     unseen_movies["maturity_match_score"] = unseen_movies["age_rating"].apply(
@@ -695,9 +721,10 @@ def recommend_movies(user_id, user_message="", top_n=1):
             unseen_movies = maturity_filtered_movies
 
     unseen_movies["final_score"] = (
-        unseen_movies["predicted_rating"] + unseen_movies["title_match_score"] * 0.35
-        + unseen_movies["genre_match_score"] * 0.75
+        unseen_movies["predicted_rating"]
+        + unseen_movies["genre_match_score"] * 0.90
         + unseen_movies["maturity_match_score"] * 0.90
+        + unseen_movies["reference_similarity_score"] * 1.75
     )
 
     recommendations = unseen_movies.sort_values(
